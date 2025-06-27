@@ -1,0 +1,63 @@
+Deliverables
+1. Variable-Length Time Series Clustering Algorithm
+
+Development of a specialized clustering algorithm capable of identifying
+similar patterns across financial time series data of arbitrary lengths. The
+solution will implement Dynamic Time Warping (DTW) with appropriate global
+constraints to efficiently handle sequences of vastly different durations while
+preserving pattern recognition capabilities. 
+2. Data Preprocessing Pipeline
+
+Creation of a robust preprocessing pipeline that includes:
+
+    Adaptive resampling techniques to handle extreme length variations
+    Piecewise Aggregate Approximation (PAA) for dimensionality reduction
+    Symbolic representation methods for efficient pattern matching
+    Z-score normalization to standardize price movements
+
+3. Multi-Scale Pattern Recognition System
+
+Implementation of a multi-scale approach that:
+
+    Stratifies patterns by length for more meaningful comparisons
+    Applies appropriate clustering parameters based on time scale
+    Identifies representative patterns across different time horizons
+    Handles the full spectrum from very short (10 ticks) to very long (2000+ ticks) patterns 
+
+4. Pattern Visualization Tools
+
+Development of specialized visualization tools that:
+
+    Enable time-normalized visualization of variable-length patterns
+    Provide multi-panel stratified visualizations by length
+    Display cluster representatives and medoids
+    Visualize pattern similarity across different time scales
+
+5. Pattern Analysis Framework
+
+Creation of analytical tools to:
+
+    Extract representative patterns (medoids) from each cluster
+    Generate barycenter averages for fixed-length representation
+    Analyze pattern continuation tendencies for trading insights
+    Evaluate pattern distribution across different length strata
+
+6. Documentation and Knowledge Transfer
+
+Comprehensive documentation including:
+
+    Technical implementation details
+    Algorithm selection rationale
+    Parameter optimization guidelines
+    Code annotations and usage examples
+    Performance benchmarks and optimization recommendations
+
+
+I want to analyze
+- correlation of crash game length to the multiplier.
+- optimal entry/exit plan, position size
+- scalping opportunities
+- risk management
+- predicting multiplier from historical data
+- backtesting the stragies (good or bad)
+- etc ...
