@@ -15,3 +15,15 @@ python -m src.data_cleaning <input_dir> <output_dir>
 ```
 
 Cleaned files will be written to `<output_dir>` preserving the original directory structure.
+
+## Running the sample analysis
+
+The exploratory analysis script uses multiprocessing and expects the `src` package
+to be importable. Run it as a module from the project root:
+
+```bash
+python -m src.main
+```
+
+This ensures that subprocesses can properly import the package and prevents
+`ModuleNotFoundError` errors on platforms that use the spawn start method.
