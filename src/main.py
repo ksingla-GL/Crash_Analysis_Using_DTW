@@ -70,10 +70,29 @@ def main() -> None:
         if exit_zones:
             print(f"  Suggested exit zones: {[f'{z:.2f}x' for z in exit_zones]}")
 
+    # Additional pattern analysis for task 5
+    medoids = analysis.get_cluster_medoids(labels)
+    barycenters = analysis.compute_barycenters(labels, target_length=50)
+    continuation = analysis.analyze_continuation_tendencies(labels)
+    distribution = analysis.pattern_distribution_by_strata(labels)
+
+    print("\n=== Cluster Medoids and Barycenters ===")
+    for cid in sorted(medoids):
+        print(
+            f"Cluster {cid}: medoid len {len(medoids[cid])}, barycenter len {len(barycenters[cid])}"
+        )
+
+    print("\n=== Pattern Continuation Tendencies ===")
+    for cid, slope in continuation.items():
+        print(f"Cluster {cid}: avg post-peak slope {slope:.4f}")
+
+    print("\n=== Pattern Distribution by Length Strata ===")
+    for stratum, counts in distribution.items():
+        summary = ', '.join(f"{cid}: {cnt}" for cid, cnt in counts.items())
+        print(f"{stratum}: {summary}")
+
     analysis.visualize_patterns(labels, output_dir=f"plots_k{best_k}")
-    analysis.create_similarity_heatmap(
-        labels, f"plots_k{best_k}/similarity_matrix.png"
-    )
+    analysis.create_similarity_heatmap(labels, f"plots_k{best_k}/similarity_matrix.png")
 
     # Compare patterns across multiple resampling scales
     scales_result = analysis.compare_resampling_scales(

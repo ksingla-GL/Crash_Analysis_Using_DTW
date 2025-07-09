@@ -627,3 +627,71 @@ class CrashGameAnalysis:
         os.makedirs(output_dir, exist_ok=True)
         plt.savefig(os.path.join(output_dir, "stratified_patterns.png"))
         plt.close()
+
+    def get_cluster_medoids(self, labels: List[int]) -> Dict[int, List[float]]:
+        """Return the medoid sequence for each cluster."""
+        if self.preprocessed_data is None:
+            self.preprocess(None)
+        medoids: Dict[int, List[float]] = {}
+        for cid in sorted(set(labels)):
+            indices = [i for i, lbl in enumerate(labels) if lbl == cid]
+            if not indices:
+                continue
+            m_idx = self._find_medoid(indices)
+            medoids[cid] = self.preprocessed_data[m_idx]
+        return medoids
+
+    def compute_barycenters(
+        self, labels: List[int], target_length: Optional[int] = None
+    ) -> Dict[int, List[float]]:
+        """Compute simple DTW barycenters for each cluster."""
+        barycenters: Dict[int, List[float]] = {}
+        for cid in sorted(set(labels)):
+            indices = [i for i, lbl in enumerate(labels) if lbl == cid]
+            if not indices:
+                continue
+            seqs = [self.raw_data[i] for i in indices]
+            if target_length is None:
+                lengths = [len(s) for s in seqs]
+                tl = int(sum(lengths) / len(lengths))
+            else:
+                tl = target_length
+            resampled = [resample_series(s, tl) for s in seqs]
+            barycenter = [sum(vals) / len(resampled) for vals in zip(*resampled)]
+            barycenters[cid] = barycenter
+        return barycenters
+
+    def analyze_continuation_tendencies(
+        self, labels: List[int], window: int = 5
+    ) -> Dict[int, float]:
+        """Estimate average post-peak slope for sequences in each cluster."""
+        tendencies: Dict[int, float] = {}
+        for cid in set(labels):
+            indices = [i for i, lbl in enumerate(labels) if lbl == cid]
+            slopes: List[float] = []
+            for idx in indices:
+                seq = self.raw_data[idx]
+                if not seq:
+                    continue
+                peak_idx = seq.index(max(seq))
+                end_idx = min(len(seq) - 1, peak_idx + window)
+                if end_idx == peak_idx:
+                    continue
+                slope = (seq[end_idx] - seq[peak_idx]) / (end_idx - peak_idx)
+                slopes.append(slope)
+            tendencies[cid] = sum(slopes) / len(slopes) if slopes else 0.0
+        return tendencies
+
+    def pattern_distribution_by_strata(
+        self, labels: List[int], bins: Optional[List[int]] = None
+    ) -> Dict[str, Dict[int, int]]:
+        """Count cluster labels within each length stratum."""
+        strata = self.stratify_by_length(bins)
+        distribution: Dict[str, Dict[int, int]] = {}
+        for name, indices in strata.items():
+            counts: Dict[int, int] = {}
+            for idx in indices:
+                lbl = labels[idx]
+                counts[lbl] = counts.get(lbl, 0) + 1
+            distribution[name] = counts
+        return distribution
