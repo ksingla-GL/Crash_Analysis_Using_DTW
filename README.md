@@ -27,3 +27,17 @@ python -m src.main
 
 This ensures that subprocesses can properly import the package and prevents
 `ModuleNotFoundError` errors on platforms that use the spawn start method.
+
+## Running the backtesting code
+
+An example betting strategy backtester lives in the `Backtesting` folder.
+It expects a directory of round CSVs (by default `total_rounds`) and
+simulates the `ImprovedMomentumBot` against those rounds. Run it from the
+project root with:
+
+```bash
+python Backtesting/Backtest_betting_strategy.py
+```
+
+The script loads the round data, executes the strategy and writes the trades to
+`my_crash_game_trades.csv`. A summary and performance plot are shown at the end.
