@@ -5,8 +5,6 @@ from collections import deque
 import matplotlib.pyplot as plt
 import time
 
-# ok so this bot trades crash games based on patterns ive noticed
-# took me forever to figure out these patterns lol
 
 class ImprovedMomentumBot:
     """
@@ -55,7 +53,7 @@ class ImprovedMomentumBot:
         self.hot_streak_trades = 0
         self.hot_streak_wins = 0
         
-        # bet sizes - found these through trial and error
+        # bet sizes - found these through trial and error thanks to genetic algos
         self.momentum_base = 0.008  # 0.8% - small cuz low winrate
         self.post_massive_base = 0.015  # 1.5% - bigger cuz wins more often
         
