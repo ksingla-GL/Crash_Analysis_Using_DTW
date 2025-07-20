@@ -1,0 +1,20 @@
+{
+  "momentum_entry": 1.9859647152143847,
+  "post_massive_min": 1.1803585285253462,
+  "post_massive_max": 1.46557067625025,
+  "hot_streak_4_min": 1.000665341669971,
+  "hot_streak_4_max": 2.162955271449026,
+  "momentum_target_mult": 7.483635818034849,
+  "post_massive_target_mult": 1.305039606056883,
+  "hot_streak_4_target": 3.0,
+  "hot_streak_5_target": 5.0,
+  "momentum_stop": 0.8182605439095529,
+  "post_massive_stop": 0.9010984914959351,
+  "hot_streak_stop": 0.8180451143951707,
+  "momentum_base_bet": 0.009077652230527675,
+  "post_massive_base_bet": 0.020211433515520225,
+  "hot_streak_base_bet": 0.00864328698581061,
+  "hot_streak_5_base_bet": 0.01535508794225333,
+  "massive_ago_limit": 3,
+  "hot_streak_count": 4
+}
