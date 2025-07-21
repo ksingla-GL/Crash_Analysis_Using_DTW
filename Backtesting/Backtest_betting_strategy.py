@@ -385,7 +385,7 @@ def show_results(bot, df):
     print(f"Total trades: {bot.n_trades}")
     print(f"Winners: {bot.n_wins} ({win_rate:.1f}%)")
     print(f"Rounds skipped: {bot.skipped}")
-    print(f"Return: {returns:+.1f}% {'💰' if returns > 0 else '💸'}")
+    print(f"Return: {returns:+.1f}% {'Big Money' if returns > 0 else 'Fair'}")
     print(f"Final bankroll: ${bot.capital:,.2f}")
     
     # drawdown check
