@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Sun Jul 20 10:57:14 2025
-
 @author: Kshitij
 """
 
@@ -571,7 +569,7 @@ def print_optimized_params(params: GeneticParams):
     print(f"  Hot streak: {params.hot_streak_base_bet*100:.2f}% (default: {defaults.hot_streak_base_bet*100:.2f}%)")
     print(f"  Hot streak 5: {params.hot_streak_5_base_bet*100:.2f}% (default: {defaults.hot_streak_5_base_bet*100:.2f}%)")
 
-def load_data(folder='clean_total_rounds'):
+def load_data(folder='total_rounds'):
     """Fixed data load - loads the correct round_XXXX.csv files"""
     print(f"Loading from {folder}...")
     start = time.time()
@@ -657,7 +655,7 @@ def run_final_comparison(all_rounds, optimized_params):
         # Check for overfitting
         train_val_gap = abs(train_results['return'] - val_results['return'])
         if train_val_gap > 0.3:  # 30% gap
-            print(f"  ⚠️  Warning: Large train-val gap ({train_val_gap*100:.1f}%) suggests overfitting")
+            print(f" Warning: Large train-val gap ({train_val_gap*100:.1f}%) suggests overfitting")
 
 # Main execution
 if __name__ == "__main__":
