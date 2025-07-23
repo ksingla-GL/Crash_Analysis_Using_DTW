@@ -223,4 +223,351 @@ class OptimizedBot:
         # Post-Massive-Crash Strategy
         if (self.massive_ago <= self.params.massive_ago_limit and
             self.params.post_massive_min <= entry_price < self.params.post_massive_max):
-            target = entry_price *
+            target = entry_price * self.params.post_massive_target_mult
+            return 'post_massive', target, self.params.post_massive_stop
+
+        # Hot Streaks Strategy
+        if len(self.recent_round_maxes) >= self.params.hot_streak_count:
+            streak_count = sum(1 for max_val in self.recent_round_maxes if max_val >= 2.0)
+            is_in_range = self.params.hot_streak_4_min <= entry_price < self.params.hot_streak_4_max
+            
+            if streak_count >= 5 and is_in_range:
+                return 'hot_streak_5', self.params.hot_streak_5_target, self.params.hot_streak_stop
+            elif streak_count >= self.params.hot_streak_count and is_in_range:
+                return 'hot_streak', self.params.hot_streak_4_target, self.params.hot_streak_stop
+
+        return None
+
+    def calculate_bet_size(self, strat_type: str) -> float:
+        """
+        Calculates the bet size for a given strategy, applying dynamic scaling
+        based on performance and drawdown.
+
+        Args:
+            strat_type (str): The name of the strategy being used.
+
+        Returns:
+            float: The calculated bet amount.
+        """
+        # Select base bet and PnL history based on strategy
+        strat_map = {
+            'momentum': (self.params.momentum_base_bet, self.momentum_pnls),
+            'post_massive': (self.params.post_massive_base_bet, self.post_massive_pnls),
+            'hot_streak': (self.params.hot_streak_base_bet, self.hot_streak_pnls),
+            'hot_streak_5': (self.params.hot_streak_5_base_bet, self.hot_streak_pnls),
+        }
+        base_bet_pct, recent_pnls = strat_map[strat_type]
+        
+        # Apply multipliers
+        multiplier = 1.0
+        if len(recent_pnls) > 10:
+            win_rate = sum(1 for pnl in recent_pnls if pnl > 0) / len(recent_pnls)
+            if win_rate > 0.35: multiplier *= 1.3
+            elif win_rate < 0.15: multiplier *= 0.7
+
+        # Apply drawdown protection
+        drawdown = (self.peak_capital - self.capital) / self.peak_capital
+        if drawdown > 0.05:
+            multiplier *= max(1.0 - drawdown, 0.5) # Gradual reduction
+
+        # Calculate final bet and apply capital constraints
+        bet = self.capital * base_bet_pct * multiplier
+        return min(bet, self.capital * 0.05) if bet >= 1.0 else 0.0
+
+
+# --- Backtesting and Optimization ---
+
+def fast_backtest(rounds_data: List[Tuple[str, np.ndarray]], params: GeneticParams) -> Dict:
+    """
+    A simplified, fast backtest engine to quickly evaluate the fitness
+    of a single GeneticParams instance.
+
+    Args:
+        rounds_data (List): The dataset (train, val, or test) to backtest on.
+        params (GeneticParams): The parameter set to evaluate.
+
+    Returns:
+        Dict: A dictionary of performance metrics (return, drawdown, fitness, etc.).
+    """
+    bot = OptimizedBot(params)
+    
+    for i in range(len(rounds_data) - 1):
+        round_id, data = rounds_data[i]
+        next_round_id, next_data = rounds_data[i+1]
+
+        # 1. Update bot state with results of the completed round
+        if data is not None and len(data) > 0:
+            round_max = np.max(data)
+            bot.recent_round_maxes.append(round_max)
+            bot.massive_ago = 0 if round_max >= 10.0 else bot.massive_ago + 1
+        
+        # 2. Check if we can trade the *next* round
+        if next_data is None or len(next_data) <= bot.entry_tick:
+            continue
+            
+        entry_price = next_data[bot.entry_tick]
+        trade_decision = bot.decide_trade(entry_price)
+        
+        if not trade_decision:
+            continue
+        
+        strat_type, target, stop_ratio = trade_decision
+        
+        # 3. Size the bet and execute
+        bet = bot.calculate_bet_size(strat_type)
+        if bet <= 0:
+            continue
+        
+        bot.n_trades += 1
+        bot.capital -= bet
+        
+        # 4. Simulate trade outcome
+        exit_price = 0.0
+        for tick_price in next_data[bot.entry_tick + 1:]:
+            if tick_price >= target or (tick_price / entry_price) <= stop_ratio:
+                exit_price = tick_price
+                break
+        
+        pnl = (bet * (exit_price / entry_price)) - bet if entry_price > 0 else -bet
+        bot.capital += (bet + pnl)
+        
+        # 5. Record results
+        if pnl > 0: bot.n_wins += 1
+        bot.peak_capital = max(bot.peak_capital, bot.capital)
+        
+        # Update strategy-specific PnLs
+        if strat_type == 'momentum': bot.momentum_pnls.append(pnl)
+        elif strat_type == 'post_massive': bot.post_massive_pnls.append(pnl)
+        else: bot.hot_streak_pnls.append(pnl)
+
+    # 6. Calculate final fitness metrics
+    total_return = (bot.capital - bot.init_capital) / bot.init_capital
+    max_dd = (bot.peak_capital - bot.capital) / bot.peak_capital if bot.peak_capital > 0 else 0
+    win_rate = bot.n_wins / bot.n_trades if bot.n_trades > 0 else 0
+    
+    # Combined fitness score: reward return, penalize drawdown
+    fitness = total_return * (1 - max_dd**0.5) # Square root to lessen DD impact slightly
+    
+    return {
+        'return': total_return, 'max_dd': max_dd, 'win_rate': win_rate,
+        'n_trades': bot.n_trades, 'final_capital': bot.capital, 'fitness': fitness
+    }
+
+class RobustGeneticOptimizer:
+    """
+    Manages the genetic algorithm process, including data splitting,
+    evolutionary cycles, and overfitting checks.
+    """
+    def __init__(self, all_rounds: Dict, config: Dict):
+        self.config = config
+        self._split_data(all_rounds)
+        
+        self.population_size = config["POPULATION_SIZE"]
+        self.elite_size = config["ELITE_SIZE"]
+        self.best_params: Optional[GeneticParams] = None
+        self.best_val_fitness = -float('inf')
+        self.history = []
+        self.generations_without_improvement = 0
+
+    def _split_data(self, all_rounds: Dict):
+        """Splits data into training, validation, and test sets."""
+        rounds_list = sorted(all_rounds.items())
+        n = len(rounds_list)
+        train_end = int(n * self.config["TRAIN_RATIO"])
+        val_end = train_end + int(n * self.config["VALIDATION_RATIO"])
+        
+        self.train_rounds = rounds_list[:train_end]
+        self.val_rounds = rounds_list[train_end:val_end]
+        self.test_rounds = rounds_list[val_end:]
+        
+        print(f"Data split: Train={len(self.train_rounds)}, Val={len(self.val_rounds)}, Test={len(self.test_rounds)}")
+
+    def create_initial_population(self) -> List[GeneticParams]:
+        """Creates a diverse starting population."""
+        population = [GeneticParams()]  # Start with defaults
+        while len(population) < self.population_size:
+            # Create variety by mutating the default params
+            population.append(GeneticParams().mutate(mutation_rate=0.4, conservative=True))
+        return population
+
+    def evaluate_population(self, population: List[GeneticParams]) -> List[Tuple[GeneticParams, Dict, Dict]]:
+        """Evaluates each individual on both training and validation sets."""
+        results = []
+        for i, params in enumerate(population):
+            if (i + 1) % 10 == 0: print(f"  Evaluating individual {i + 1}/{len(population)}...")
+            
+            train_metrics = fast_backtest(self.train_rounds, params)
+            val_metrics = fast_backtest(self.val_rounds, params)
+            
+            # Apply regularization penalty to fitness to discourage extreme values
+            reg_penalty = params.regularization_penalty()
+            train_metrics['fitness'] -= reg_penalty
+            val_metrics['fitness'] -= reg_penalty
+            
+            results.append((params, train_metrics, val_metrics))
+        
+        # IMPORTANT: Sort by VALIDATION fitness to select the best generalists
+        return sorted(results, key=lambda x: x[2]['fitness'], reverse=True)
+
+    def create_next_generation(self, evaluated_pop: List[Tuple[GeneticParams, Dict, Dict]]) -> List[GeneticParams]:
+        """Breeds a new generation from the evaluated population."""
+        # 1. Elitism: Keep the best performers
+        next_gen = [ind[0] for ind in evaluated_pop[:self.elite_size]]
+        
+        # 2. Breeding: Fill the rest with children of good performers
+        while len(next_gen) < self.population_size:
+            # Tournament selection is a robust way to pick parents
+            parent1 = self.tournament_select(evaluated_pop)
+            parent2 = self.tournament_select(evaluated_pop)
+            child = parent1.crossover(parent2)
+            
+            # Apply mutation to introduce new genetic material
+            mutation_rate = 0.2 * (1 - len(self.history) / self.config["GENERATIONS"]) # Decaying rate
+            if random.random() < mutation_rate:
+                child = child.mutate(conservative=True)
+            
+            next_gen.append(child)
+            
+        return next_gen
+    
+    def tournament_select(self, evaluated_pop: List[Tuple[GeneticParams, Dict, Dict]], size=3) -> GeneticParams:
+        """Selects the best individual from a random subsample."""
+        top_half = evaluated_pop[:len(evaluated_pop)//2]
+        tournament = random.sample(top_half, min(size, len(top_half)))
+        # Winner is the one with the best validation fitness
+        return max(tournament, key=lambda x: x[2]['fitness'])[0]
+
+    def optimize(self) -> Tuple[Optional[GeneticParams], List[Dict]]:
+        """Runs the main optimization loop for a set number of generations."""
+        print(f"\nStarting robust genetic optimization for {self.config['GENERATIONS']} generations...")
+        population = self.create_initial_population()
+
+        for gen in range(self.config["GENERATIONS"]):
+            print(f"\n--- Generation {gen + 1}/{self.config['GENERATIONS']} ---")
+            
+            evaluated = self.evaluate_population(population)
+            
+            best_ind, best_train, best_val = evaluated[0]
+            
+            # Track progress and check for early stopping
+            if best_val['fitness'] > self.best_val_fitness:
+                self.best_val_fitness = best_val['fitness']
+                self.best_params = best_ind
+                self.generations_without_improvement = 0
+                print(f"  New best validation fitness found: {self.best_val_fitness:.4f}")
+            else:
+                self.generations_without_improvement += 1
+
+            # Logging
+            print(f"  Best Val Fitness: {best_val['fitness']:.4f} (Return: {best_val['return']*100:.1f}%)")
+            print(f"  Best Train Fitness: {best_train['fitness']:.4f} (Return: {best_train['return']*100:.1f}%)")
+            print(f"  Generations without improvement: {self.generations_without_improvement}")
+            self.history.append({'gen': gen + 1, 'best_val_fitness': best_val['fitness'], 'best_train_fitness': best_train['fitness']})
+            
+            if self.generations_without_improvement >= self.config["EARLY_STOP_PATIENCE"]:
+                print(f"\nEarly stopping triggered after {gen + 1} generations.")
+                break
+                
+            population = self.create_next_generation(evaluated)
+            
+        return self.best_params, self.history
+
+
+# --- Data Loading and Visualization ---
+
+def load_data(folder: str) -> Dict[str, np.ndarray]:
+    """Loads all round data CSVs from a specified folder."""
+    print(f"Loading round data from '{folder}'...")
+    start_time = time.time()
+    rounds = {}
+    base_path = Path(folder)
+    
+    if not base_path.exists():
+        print(f"Error: Data directory '{folder}' not found.")
+        return {}
+
+    for subfolder in sorted(base_path.iterdir()):
+        if not subfolder.is_dir(): continue
+        
+        round_csv = subfolder / f"{subfolder.name}.csv"
+        if round_csv.exists():
+            try:
+                df = pd.read_csv(round_csv)
+                if 'multiplier' in df.columns:
+                    rounds[subfolder.name] = df['multiplier'].values
+            except Exception as e:
+                print(f"Error loading {round_csv}: {e}")
+
+    print(f"Loaded {len(rounds)} rounds in {time.time() - start_time:.2f} seconds.")
+    return rounds
+
+def plot_evolution(history: List[Dict]):
+    """Plots the fitness evolution over generations."""
+    if not history: return
+    df = pd.DataFrame(history)
+    
+    plt.figure(figsize=(12, 7))
+    plt.plot(df['gen'], df['best_train_fitness'], 'b-', label='Best Train Fitness', linewidth=2)
+    plt.plot(df['gen'], df['best_val_fitness'], 'r-', label='Best Validation Fitness', linewidth=2)
+    
+    # Check for overfitting
+    overfit_gap = df['best_train_fitness'] - df['best_val_fitness']
+    plt.fill_between(df['gen'], df['best_val_fitness'], df['best_train_fitness'], 
+                     where=overfit_gap > 0, color='blue', alpha=0.1, label='Overfitting Gap')
+    
+    plt.title('Genetic Algorithm Fitness Evolution', fontsize=16)
+    plt.xlabel('Generation', fontsize=12)
+    plt.ylabel('Fitness Score', fontsize=12)
+    plt.legend(fontsize=10)
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    plt.show()
+
+def print_final_comparison(all_rounds: Dict, best_params: GeneticParams, config: Dict):
+    """Compares the default vs. optimized parameters on all data splits."""
+    print("\n" + "="*60)
+    print("FINAL COMPARISON: Default vs. Optimized Parameters")
+    print("="*60)
+
+    optimizer = RobustGeneticOptimizer(all_rounds, config) # To get the same data splits
+    param_sets = {"Default": GeneticParams(), "Optimized": best_params}
+
+    for name, params in param_sets.items():
+        print(f"\n--- {name} Strategy Results ---")
+        train_res = fast_backtest(optimizer.train_rounds, params)
+        val_res = fast_backtest(optimizer.val_rounds, params)
+        test_res = fast_backtest(optimizer.test_rounds, params)
+        
+        print(f"  Train Set: Return={train_res['return']*100:6.1f}%, DD={train_res['max_dd']*100:5.1f}%, Trades={train_res['n_trades']}")
+        print(f"  Val.  Set: Return={val_res['return']*100:6.1f}%, DD={val_res['max_dd']*100:5.1f}%, Trades={val_res['n_trades']}")
+        print(f"  Test  Set: Return={test_res['return']*100:6.1f}%, DD={test_res['max_dd']*100:5.1f}%, Trades={test_res['n_trades']}")
+
+
+# --- Main Execution ---
+
+def main():
+    """Main script execution function."""
+    # 1. Load data
+    rounds = load_data(CONFIG["DATA_FOLDER"])
+    if not rounds:
+        return
+
+    # 2. Set up and run the optimizer
+    optimizer = RobustGeneticOptimizer(rounds, CONFIG)
+    best_params, history = optimizer.optimize()
+
+    # 3. Analyze and save results
+    if best_params:
+        plot_evolution(history)
+        print_final_comparison(rounds, best_params, CONFIG)
+        
+        # Save the best parameters to a file
+        params_dict = {f.name: getattr(best_params, f.name) for f in fields(best_params)}
+        with open(CONFIG["OUTPUT_PARAMS_FILE"], 'w') as f:
+            json.dump(params_dict, f, indent=4)
+        print(f"\n✅ Saved optimized parameters to '{CONFIG['OUTPUT_PARAMS_FILE']}'")
+    else:
+        print("\nOptimization did not find a suitable parameter set.")
+
+if __name__ == "__main__":
+    main()
